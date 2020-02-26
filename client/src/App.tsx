@@ -1,10 +1,14 @@
-import React, { useCallback, useMemo } from 'react';
-import ApolloClient, {  } from 'apollo-boost';
-import { gql } from "apollo-boost";
+import React, { useCallback, useMemo, useReducer } from 'react';
+import ApolloClient, { DocumentNode, gql } from 'apollo-boost';
 import { ApolloProvider, useQuery, useMutation } from '@apollo/react-hooks';
-
+import { MutationResult } from '@apollo/react-common';
 import { createStore, Reducer, Dispatch, applyMiddleware, Middleware, combineReducers } from 'redux';
 import { useSelector, useDispatch, shallowEqual, Provider } from 'react-redux';
+
+const client = new ApolloClient<any>({
+  // cache: new InMemoryCache(),
+  uri: 'http://localhost:4000',
+});
 
 interface ThingStateAction {
   a: number,
@@ -104,35 +108,64 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
       }
 }
 
-interface CountState {
+interface MutationStatus {
+  mutation: DocumentNode,
+  result: MutationResult<any>
 }
 
-type CountAction =
-| {
-  type: 'incCount',
-}
-| {
-  type: 'incCount_complete',
-}
-| {
-  type: 'incCount_fail',
-}
-| {
-  type: 'decCount',
-}
-| {
-  type: 'decCount_complete',
-}
-| {
-  type: 'decCount_fail',
+interface MutationState {
+  status: Record<string, MutationStatus>,
 }
 
+type MutationAction =
+| {
+  type: 'mutation',
+  mutation: DocumentNode,
+  component: string,
+}
+| {
+  type: 'mutationStatus',
+  component: string,
+  result: MutationResult<any>,
+}
 
-const count: Reducer<CountState, CountAction> = (
-  state = {},
+const mutation: Reducer<MutationState, MutationAction> = (
+  state = { status: {}},
   action,
 ) => {
-  return state;
+  switch (action.type) {
+    case 'mutation':
+      return {
+        ... state,
+        status: {
+          ... state.status,
+          [action.component]: {
+            mutation: action.mutation,
+            result: {
+              loading: true,
+              called: true,
+              client,
+            },
+          }
+        }
+      }
+    
+    case 'mutationStatus': {
+      return {
+        ... state,
+        status: {
+          ... state.status,
+          [action.component]: {
+            mutation: state.status[action.component].mutation,
+            result: action.result,
+          }
+        }
+      }
+    }
+
+    default:
+      return state;
+  }
 }
 
 interface UndoFlag {
@@ -210,21 +243,17 @@ const undoredo: Reducer<UndoState, UndoAction> = (
 
 type AppAction = 
 | ThingAction
-| CountAction
+| MutationAction
 | UndoAction
 ;
 
 type AppState = {
   thing: ThingStateAction,
   undoredo: UndoState,
+  mutation: MutationState,
 }
 
-const client = new ApolloClient({
-  // cache: new InMemoryCache(),
-  uri: 'http://localhost:4000',
-});
-
-const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
+const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
   const undo = action.undo;
@@ -236,21 +265,22 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW =
       return result;
     }
 
-    case 'incCount': {
+    case 'mutation': {
       const result = next(action);
       client
         .mutate({ mutation: INC_COUNT })
-        .then(result => dispatch({ type: 'incCount_complete', undo}))
-        .catch(error => dispatch({ type: 'incCount_fail', undo}));
-      return result;
-    }
-
-    case 'decCount': {
-      const result = next(action);
-      client
-        .mutate({ mutation: DEC_COUNT })
-        .then(result => dispatch({ type: 'decCount_complete', undo}))
-        .catch(error => dispatch({ type: 'decCount_fail', undo}));
+        .then(result => dispatch({
+          type: 'mutationStatus',
+          component: action.component,
+          result: {
+            loading: false,
+            data: result.data,
+            errors: result.errors,
+            called: true,
+            client,
+          },
+          undo
+        }))
       return result;
     }
 
@@ -307,25 +337,7 @@ function getPushUndoAction(
       text = 'reset Stuff';
       break;
 
-    case 'incCount_complete':
-      undoAction = {
-        type: 'decCount',
-      }
-      redoAction = {
-        type: 'incCount',
-      }
-      text = 'inc Count';
-      break;
-
-    case 'decCount_complete':
-      undoAction = {
-        type: 'incCount',
-      }
-      redoAction = {
-        type: 'decCount',
-      }
-      text = 'dec Count';
-      break;
+    // case 'mutationStatus':
   
     default:
       return null;
@@ -387,7 +399,7 @@ const store = createStore(
   combineReducers({
     thing,
     undoredo,
-    count,
+    mutation,
   }),
   composeWithDevTools(
     applyMiddleware(
@@ -436,6 +448,26 @@ const DEC_COUNT = gql`
 //   return useReducer(s => s + 1, 0)[1];
 // }
 
+function useReduxMutation<TData = any>(
+  mutation: DocumentNode,
+  component: string,
+): [() => void, MutationResult<TData>] {
+  const dispatch = useDispatch();
+
+  return [
+    useCallback(() => dispatch({
+      type: 'mutation',
+      mutation,
+      component,
+    }), [mutation, component]),
+    useSelector((state: AppState) => {
+      const status = state.mutation.status[component];
+      return status && status.result
+    })
+  ];
+}
+
+
 function Count(this: any) {
   // const [_incCount] = useMutation(INC_COUNT);
   // const [_decCount] = useMutation(DEC_COUNT);
@@ -445,8 +477,11 @@ function Count(this: any) {
   const { loading, error, data } = useQuery(COUNT);
 
   const dispatch = useDispatch<Dispatch<AppAction>>();
-  const incCount = useCallback(() => dispatch({ type: 'incCount' }), []);
-  const decCount = useCallback(() => dispatch({ type: 'decCount' }), []);
+  // const incCount = useCallback(() => dispatch({ type: 'mutate', mutation: INC_COUNT }), []);
+  // const decCount = useCallback(() => dispatch({ type: 'decCount' }), []);
+
+  const [incCount, incResult] = useReduxMutation(INC_COUNT, 'Count');
+  const [decCount, decResult] = useReduxMutation(INC_COUNT, 'Count');
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
