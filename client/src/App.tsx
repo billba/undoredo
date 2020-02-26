@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useReducer } from 'react';
-import ApolloClient, { DocumentNode, gql } from 'apollo-boost';
-import { ApolloProvider, useQuery, useMutation } from '@apollo/react-hooks';
+import ApolloClient, { DocumentNode, gql, OperationVariables, MutationOptions } from 'apollo-boost';
+import { ApolloProvider, useQuery, useMutation, MutationHookOptions } from '@apollo/react-hooks';
 import { MutationResult } from '@apollo/react-common';
 import { createStore, Reducer, Dispatch, applyMiddleware, Middleware, combineReducers } from 'redux';
 import { useSelector, useDispatch, shallowEqual, Provider } from 'react-redux';
@@ -108,58 +108,43 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
       }
 }
 
-interface MutationStatus {
-  mutation: DocumentNode,
-  result: MutationResult<any>
-}
-
 interface MutationState {
-  status: Record<string, MutationStatus>,
+  status: Map<MutationOptions<any, any>, MutationResult<any>>,
 }
 
 type MutationAction =
 | {
   type: 'mutation',
-  mutation: DocumentNode,
-  component: string,
+  options: MutationOptions<any, any>
 }
 | {
   type: 'mutationStatus',
-  component: string,
+  options: MutationOptions<any, any>,
   result: MutationResult<any>,
 }
 
 const mutation: Reducer<MutationState, MutationAction> = (
-  state = { status: {}},
+  state = { status: new Map<MutationOptions<any, any>, MutationResult<any>>() },
   action,
 ) => {
   switch (action.type) {
-    case 'mutation':
+    case 'mutation': {
       return {
         ... state,
-        status: {
-          ... state.status,
-          [action.component]: {
-            mutation: action.mutation,
-            result: {
-              loading: true,
-              called: true,
-              client,
-            },
-          }
-        }
+        status: new Map(state.status)
+          .set(action.options, {
+            loading: true,
+            called: true,
+            client,
+          }),
       }
+    }
     
     case 'mutationStatus': {
       return {
         ... state,
-        status: {
-          ... state.status,
-          [action.component]: {
-            mutation: state.status[action.component].mutation,
-            result: action.result,
-          }
-        }
+        status: new Map(state.status)
+          .set(action.options, action.result),
       }
     }
 
@@ -259,19 +244,16 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> 
   const undo = action.undo;
 
   switch (action.type) {
-    case 'loadStuff': {
-      const result = next(action);
+    case 'loadStuff':
       setTimeout(() => dispatch({ type: 'setStuff', stuff: `Stuff`, undo}), 1000);
-      return result;
-    }
+      return next(action);
 
-    case 'mutation': {
-      const result = next(action);
+    case 'mutation':
       client
-        .mutate({ mutation: INC_COUNT })
+        .mutate(action.options)
         .then(result => dispatch({
           type: 'mutationStatus',
-          component: action.component,
+          options: action.options,
           result: {
             loading: false,
             data: result.data,
@@ -280,9 +262,8 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> 
             client,
           },
           undo
-        }))
-      return result;
-    }
+        }));
+      return next(action);
 
     default:
       return next(action);
@@ -356,8 +337,6 @@ function getPushUndoAction(
 const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
-
-  console.log("undoredo", action);
 
   switch (action.type) {
     case 'Undo': {
@@ -448,22 +427,19 @@ const DEC_COUNT = gql`
 //   return useReducer(s => s + 1, 0)[1];
 // }
 
-function useReduxMutation<TData = any>(
+function useReduxMutation<TData = any, TVariables = OperationVariables>(
   mutation: DocumentNode,
-  component: string,
+  options?: MutationHookOptions<TData, TVariables>
 ): [() => void, MutationResult<TData>] {
   const dispatch = useDispatch();
+  const _options = useMemo(() => ({ mutation, ... options } as MutationOptions<TData, TVariables>), [mutation, options]);
 
   return [
     useCallback(() => dispatch({
       type: 'mutation',
-      mutation,
-      component,
-    }), [mutation, component]),
-    useSelector((state: AppState) => {
-      const status = state.mutation.status[component];
-      return status && status.result
-    })
+      options: _options,
+    }), [_options]),
+    useSelector((state: AppState) => state.mutation.status.get(_options)!)
   ];
 }
 
@@ -480,8 +456,8 @@ function Count(this: any) {
   // const incCount = useCallback(() => dispatch({ type: 'mutate', mutation: INC_COUNT }), []);
   // const decCount = useCallback(() => dispatch({ type: 'decCount' }), []);
 
-  const [incCount, incResult] = useReduxMutation(INC_COUNT, 'Count');
-  const [decCount, decResult] = useReduxMutation(INC_COUNT, 'Count');
+  const [incCount, incResult] = useReduxMutation(INC_COUNT);
+  const [decCount, decResult] = useReduxMutation(DEC_COUNT);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
