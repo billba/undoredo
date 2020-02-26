@@ -12,24 +12,18 @@ interface ThingStateAction {
   stuff?: string | null,
 }
 
-interface IncAAction {
+type ThingAction =
+| {
   type: 'incA';
 }
-
-interface AddToAAction {
+| {
   type: 'addToA',
   whatToAdd: number,
 }
-
-interface SetAAction {
+| {
   type: 'setA',
   a: number,
 }
-
-type ThingAction =
-| IncAAction
-| AddToAAction
-| SetAAction
 | {
   type: 'init',
 }
@@ -42,14 +36,14 @@ type ThingAction =
   b: string,
 }
 | {
-  type: 'LoadStuff',
+  type: 'loadStuff',
 }
 | {
-  type: 'SetStuff',
+  type: 'setStuff',
   stuff: string,
 }
 | {
-  type: 'ResetStuff',
+  type: 'resetStuff',
 }
 
 const thing: Reducer<ThingStateAction, ThingAction> = (
@@ -69,31 +63,37 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
           a: state.a + 1,
         }
 
+      case 'addToA': 
+        return {
+          ... state,
+          a: state.a + action.whatToAdd
+        }
+
+      case 'setB':
+        return {
+          ... state,
+          b: action.b,
+        }
+
       case 'appendToB':
         return {
           ... state,
           b: state.b + action.whatToAppend
         }
 
-      case 'addToA': 
-        return {
-          ... state,
-          a: state.a + action.whatToAdd
-        }
-      
-      case 'LoadStuff':
+      case 'loadStuff':
         return {
           ... state,
           stuff: null,
         }
 
-      case 'SetStuff':
+      case 'setStuff':
         return {
           ... state,
           stuff: action.stuff,
         }
   
-      case 'ResetStuff':
+      case 'resetStuff':
         return {
           ... state,
           stuff: undefined,
@@ -108,21 +108,10 @@ interface UndoFlag {
   undo?: boolean;
 }
 
-type UndoableAction = 
-| IncAAction
-| AddToAAction;
-
-type RedoableAction = UndoableAction | SetAAction;
-
 interface UndoRedo {
-  undoAction: RedoableAction,
-  redoAction: RedoableAction,
+  undoAction: AppAction,
+  redoAction: AppAction,
   text: string,
-}
-
-interface PushUndoAction {
-  type: 'PushUndo',
-  undoredo: UndoRedo, 
 }
 
 interface UndoState {
@@ -131,7 +120,10 @@ interface UndoState {
 }
 
 type UndoAction = 
-| PushUndoAction
+| {
+  type: 'PushUndo',
+  undoredo: UndoRedo, 
+}
 | {
   type: 'Undo',
 } 
@@ -192,20 +184,11 @@ type AppState = {
   undoredo: UndoState,
 }
 
-// interface CountState {
-// }
-
-// type CountAction = {
-//   type: 'inc_count'
-// } | {
-
-// }
-
 function getPushUndoAction(
   state: AppState,
   action: AppAction
-): PushUndoAction | null {
-  let undoAction: RedoableAction;
+): AppAction | null {
+  let undoAction: AppAction;
   let text: string;
 
   switch (action.type) {
@@ -225,6 +208,29 @@ function getPushUndoAction(
       text = 'add to A';
       break;
     
+    case 'appendToB':
+      undoAction = {
+        type: 'setB',
+        b: state.thing.b,
+      };
+      text = 'append to B';
+      break;
+    
+    case 'setStuff':
+      undoAction = {
+        type: 'resetStuff',
+      };
+      text = 'load Stuff';
+      break;
+
+    case 'resetStuff':
+      undoAction = {
+        type: 'setStuff',
+        stuff: state.thing.stuff!,
+      };
+      text = 'reset Stuff';
+      break;
+
     default:
       return null;
   }
@@ -239,17 +245,28 @@ function getPushUndoAction(
   }  
 }
 
-const middle: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
+const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
 
   switch (action.type) {
-    case 'LoadStuff': {
+    case 'loadStuff': {
       const result = next(action);
-      setTimeout(() => dispatch({ type: 'SetStuff', stuff: `Stuff`}), 1000);
+      setTimeout(() => dispatch({ type: 'setStuff', stuff: `Stuff`}), 1000);
       return result;
     }
 
+    default:
+      return next(action);
+  }
+}
+
+
+const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
+  const { dispatch, getState } = storeMW;
+  const state = getState();
+
+  switch (action.type) {
     case 'Undo': {
       dispatch({
         ... state.undoredo.undo[0].undoAction,
@@ -288,7 +305,10 @@ const store = createStore(
     undoredo,
   }),
   composeWithDevTools(
-    applyMiddleware(middle)
+    applyMiddleware(
+      asyncMiddleware,
+      undoredoMiddleware,
+    )
   ),
 );
 
@@ -428,8 +448,8 @@ function AllThing() {
 function Async() {
   const { stuff } = useSelector((state: AppState) => ({ stuff: state.thing.stuff }), shallowEqual);
   const dispatch = useDispatch<Dispatch<AppAction>>();
-  const loadStuff = useCallback(() => dispatch({ type: 'LoadStuff' }), []);
-  const resetStuff = useCallback(() => dispatch({ type: 'ResetStuff' }), []);
+  const loadStuff = useCallback(() => dispatch({ type: 'loadStuff' }), []);
+  const resetStuff = useCallback(() => dispatch({ type: 'resetStuff' }), []);
 
   return <div>
     { stuff === undefined ? <button onClick={ loadStuff }>Load Stuff</button> :
@@ -443,9 +463,9 @@ function Async() {
 }
 
 function Undo() {
-  const { isUndo, isRedo } = useSelector((state: AppState) => ({
-    isUndo: state.undoredo.undo.length > 0,
-    isRedo: state.undoredo.redo.length > 0,
+  const { undoText, redoText } = useSelector((state: AppState) => ({
+    undoText: state.undoredo.undo.length > 0 ? state.undoredo.undo[0].text : undefined,
+    redoText: state.undoredo.redo.length > 0 ? state.undoredo.redo[0].text : undefined,
   }), shallowEqual);
   console.log("undoredo", undoredo);
   const dispatch = useDispatch<Dispatch<AppAction>>();
@@ -454,12 +474,12 @@ function Undo() {
   const redo = useCallback(() => dispatch({ type: 'Redo' }), []);
 
   return <div>
-    { isUndo
-      ? <button onClick={ undo }>Undo</button>
+    { undoText
+      ? <button onClick={ undo }>Undo { undoText }</button>
       : <button disabled>Undo</button>
     }
-    { isRedo
-      ? <button onClick={ redo }>Redo</button>
+    { redoText
+      ? <button onClick={ redo }>Redo { redoText }</button>
       : <button disabled>Redo</button>
     }
   </div>;
