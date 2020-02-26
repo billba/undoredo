@@ -16,6 +16,7 @@ const typeDefs = gql`
 
     type Mutation {
         incCount: Count
+        decCount: Count
     }
 `
 
@@ -39,7 +40,16 @@ const resolvers = {
                 id,
                 count: ++count
             }
-        }
+        },
+
+        decCount: () => {
+            console.log("decCount");
+            return {
+                id,
+                count: --count
+            }
+        },
+
     },
 }
 
