@@ -104,6 +104,37 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
       }
 }
 
+interface CountState {
+}
+
+type CountAction =
+| {
+  type: 'incCount',
+}
+| {
+  type: 'incCount_complete',
+}
+| {
+  type: 'incCount_fail',
+}
+| {
+  type: 'decCount',
+}
+| {
+  type: 'decCount_complete',
+}
+| {
+  type: 'decCount_fail',
+}
+
+
+const count: Reducer<CountState, CountAction> = (
+  state = {},
+  action,
+) => {
+  return state;
+}
+
 interface UndoFlag {
   undo?: boolean;
 }
@@ -177,82 +208,49 @@ const undoredo: Reducer<UndoState, UndoAction> = (
   }
 }
 
-type AppAction = ThingAction | UndoAction;
+type AppAction = 
+| ThingAction
+| CountAction
+| UndoAction
+;
 
 type AppState = {
   thing: ThingStateAction,
   undoredo: UndoState,
 }
 
-function getPushUndoAction(
-  state: AppState,
-  action: AppAction
-): AppAction | null {
-  let undoAction: AppAction;
-  let text: string;
-
-  switch (action.type) {
-    case 'incA':
-      undoAction = {
-        type: 'setA',
-        a: state.thing.a,
-      };
-      text = 'inc A';
-      break;
-
-    case 'addToA':
-      undoAction = {
-        type: 'setA',
-        a: state.thing.a,
-      };
-      text = 'add to A';
-      break;
-    
-    case 'appendToB':
-      undoAction = {
-        type: 'setB',
-        b: state.thing.b,
-      };
-      text = 'append to B';
-      break;
-    
-    case 'setStuff':
-      undoAction = {
-        type: 'resetStuff',
-      };
-      text = 'load Stuff';
-      break;
-
-    case 'resetStuff':
-      undoAction = {
-        type: 'setStuff',
-        stuff: state.thing.stuff!,
-      };
-      text = 'reset Stuff';
-      break;
-
-    default:
-      return null;
-  }
-
-  return {
-    type: 'PushUndo',
-    undoredo: {
-      undoAction,
-      redoAction: action,
-      text,
-    }
-  }  
-}
+const client = new ApolloClient({
+  // cache: new InMemoryCache(),
+  uri: 'http://localhost:4000',
+});
 
 const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
+  const undo = action.undo;
 
   switch (action.type) {
     case 'loadStuff': {
       const result = next(action);
-      setTimeout(() => dispatch({ type: 'setStuff', stuff: `Stuff`}), 1000);
+      setTimeout(() => dispatch({ type: 'setStuff', stuff: `Stuff`, undo}), 1000);
+      return result;
+    }
+
+    case 'incCount': {
+      const result = next(action);
+      client
+        .mutate({ mutation: INC_COUNT })
+        .then(result => dispatch({ type: 'incCount_complete', undo}))
+        .catch(error => dispatch({ type: 'incCount_fail', undo}));
+      return result;
+    }
+
+    case 'decCount': {
+      const result = next(action);
+      client
+        .mutate({ mutation: DEC_COUNT })
+        .then(result => dispatch({ type: 'decCount_complete', undo}))
+        .catch(error => dispatch({ type: 'decCount_fail', undo}));
       return result;
     }
 
@@ -261,26 +259,111 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW =
   }
 }
 
+function getPushUndoAction(
+  state: AppState,
+  action: AppAction
+): AppAction | null {
+  let undoAction: AppAction;
+  let redoAction = action;
+  let text: string;
+
+  switch (action.type) {
+    case 'incA':
+      undoAction = {
+        type: 'setA',
+        a: state.thing.a,
+      }
+      text = 'inc A';
+      break;
+
+    case 'addToA':
+      undoAction = {
+        type: 'setA',
+        a: state.thing.a,
+      }
+      text = 'add to A';
+      break;
+    
+    case 'appendToB':
+      undoAction = {
+        type: 'setB',
+        b: state.thing.b,
+      }
+      text = 'append to B';
+      break;
+    
+    case 'setStuff':
+      undoAction = {
+        type: 'resetStuff',
+      }
+      text = 'load Stuff';
+      break;
+
+    case 'resetStuff':
+      undoAction = {
+        type: 'setStuff',
+        stuff: state.thing.stuff!,
+      }
+      text = 'reset Stuff';
+      break;
+
+    case 'incCount_complete':
+      undoAction = {
+        type: 'decCount',
+      }
+      redoAction = {
+        type: 'incCount',
+      }
+      text = 'inc Count';
+      break;
+
+    case 'decCount_complete':
+      undoAction = {
+        type: 'incCount',
+      }
+      redoAction = {
+        type: 'decCount',
+      }
+      text = 'dec Count';
+      break;
+  
+    default:
+      return null;
+  }
+
+  return {
+    type: 'PushUndo',
+    undoredo: {
+      undoAction,
+      redoAction,
+      text,
+    }
+  }  
+}
 
 const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
 
+  console.log("undoredo", action);
+
   switch (action.type) {
     case 'Undo': {
-      dispatch({
+      const _action = {
         ... state.undoredo.undo[0].undoAction,
         undo: true,
-      });
-      return next(action);
+      }
+      next(action);
+      return dispatch(_action);
     }
 
     case 'Redo': {
-      dispatch({
+      const _action = {
         ... state.undoredo.redo[0].redoAction,
         undo: true,
-      });
-      return next(action);
+      }
+      next(action);
+      return dispatch(_action);
     }
 
     default:
@@ -288,8 +371,9 @@ const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeM
         const pushUndoAction = getPushUndoAction(state, action);
 
         if (pushUndoAction) {
-          next(action);
-          return dispatch(pushUndoAction);
+          const result = next(action);
+          dispatch(pushUndoAction);
+          return result;
         }
       }
 
@@ -303,6 +387,7 @@ const store = createStore(
   combineReducers({
     thing,
     undoredo,
+    count,
   }),
   composeWithDevTools(
     applyMiddleware(
@@ -313,11 +398,6 @@ const store = createStore(
 );
 
 store.dispatch({ type: 'init' });
-
-const client = new ApolloClient({
-  // cache: new InMemoryCache(),
-  uri: 'http://localhost:4000',
-});
 
 const COUNT = gql`
   query GetCount {
@@ -343,37 +423,40 @@ const INC_COUNT = gql`
   }
 `;
 
+const DEC_COUNT = gql`
+  mutation DecCount {
+    decCount {
+      id
+      count
+    }
+  }
+`;
+
 // function useForceUpdate() {
 //   return useReducer(s => s + 1, 0)[1];
 // }
 
-function Count() {
-    const [incCount] = useMutation(INC_COUNT
-    //   , {
-    //   update(cache, data) {
-    //     console.log("data was", data);
-    //     const { count } = cache.readQuery({ query: COUNT }) as any;
-    //     cache.writeQuery({
-    //       query: COUNT,
-    //       data: { count },
-    //     });
-    //   }
-    // }
-    );
+function Count(this: any) {
+  // const [_incCount] = useMutation(INC_COUNT);
+  // const [_decCount] = useMutation(DEC_COUNT);
+  // const incCount = useCallback(() => _incCount(), []);
+  // const decCount = useCallback(() => _decCount(), []);
 
-    const { loading, error, data } = useQuery(COUNT);
-    const cb = useCallback(() => {
-      incCount();
-    }, []);
+  const { loading, error, data } = useQuery(COUNT);
 
-    if (loading) return <p>Loading...</p>;
-    if (error) return <p>Error :(</p>;
-  
-    return <>
-      <button onClick={ cb }>inc</button>
-      <div>count: { data.getCount.count } </div>
-      <div>time: { Date.now() }</div>
-    </>;
+  const dispatch = useDispatch<Dispatch<AppAction>>();
+  const incCount = useCallback(() => dispatch({ type: 'incCount' }), []);
+  const decCount = useCallback(() => dispatch({ type: 'decCount' }), []);
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error :(</p>;
+
+  return <>
+    <button onClick={ incCount }>inc</button>
+    <button onClick={ decCount }>dec</button>
+    <div>count: { data.getCount.count } </div>
+    <div>time: { Date.now() }</div>
+  </>;
 }
 
 function OtherCount() {
@@ -467,7 +550,6 @@ function Undo() {
     undoText: state.undoredo.undo.length > 0 ? state.undoredo.undo[0].text : undefined,
     redoText: state.undoredo.redo.length > 0 ? state.undoredo.redo[0].text : undefined,
   }), shallowEqual);
-  console.log("undoredo", undoredo);
   const dispatch = useDispatch<Dispatch<AppAction>>();
 
   const undo = useCallback(() => dispatch({ type: 'Undo' }), []);
