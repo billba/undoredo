@@ -7,6 +7,7 @@ Prototype architecture for adding Undo/Redo to a React app based on Redux/GraphQ
 ### build server
 ```
 cd server
+yarn
 yarn watch
 ```
 
@@ -19,6 +20,7 @@ yarn started
 ### build & run client
 ```
 cd client
+yarn
 yarn start
 ```
 
