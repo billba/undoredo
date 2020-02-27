@@ -449,15 +449,9 @@ function Count(this: any) {
   // const [_decCount] = useMutation(DEC_COUNT);
   // const incCount = useCallback(() => _incCount(), []);
   // const decCount = useCallback(() => _decCount(), []);
-
+  const [incCount] = useReduxMutation(INC_COUNT);
+  const [decCount] = useReduxMutation(DEC_COUNT);
   const { loading, error, data } = useQuery(COUNT);
-
-  const dispatch = useDispatch<Dispatch<AppAction>>();
-  // const incCount = useCallback(() => dispatch({ type: 'mutate', mutation: INC_COUNT }), []);
-  // const decCount = useCallback(() => dispatch({ type: 'decCount' }), []);
-
-  const [incCount, incResult] = useReduxMutation(INC_COUNT);
-  const [decCount, decResult] = useReduxMutation(DEC_COUNT);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
