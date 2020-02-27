@@ -364,7 +364,7 @@ function getPushUndoAction(
   }  
 }
 
-const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction>> = storeMW => next => (action: AppAction & UndoFlag) => {
+const undoredoMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> = storeMW => next => (action: AppAction & UndoFlag) => {
   const { dispatch, getState } = storeMW;
   const state = getState();
 
@@ -457,7 +457,7 @@ const DEC_COUNT = gql`
 //   return useReducer(s => s + 1, 0)[1];
 // }
 
-function useReduxMutation<TData = any, TVariables = OperationVariables>(
+function useReduxMutation<TData = any, TVariables = OperationVariables> (
   mutation: DocumentNode,
   options?: MutationHookOptions<TData, TVariables>
 ): [() => void, MutationResult<TData>] {
