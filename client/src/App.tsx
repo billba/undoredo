@@ -318,7 +318,37 @@ function getPushUndoAction(
       text = 'reset Stuff';
       break;
 
-    // case 'mutationStatus':
+    case 'mutationStatus': {
+      const mutation = action.options.mutation;
+
+      const incAction: AppAction = {
+        type: 'mutation',
+        options: {
+          ... action.options,
+          mutation: INC_COUNT,
+        }
+      };
+
+      const decAction: AppAction = {
+        type: 'mutation',
+        options: {
+          ... action.options,
+          mutation: DEC_COUNT,
+        }
+      };
+
+      if (mutation === INC_COUNT) {
+        undoAction = decAction;
+        redoAction = incAction;
+        text = 'inc Count'
+      } else if (mutation === DEC_COUNT) {
+        undoAction = incAction;
+        redoAction = decAction;
+        text = 'dec Count'
+      }
+
+      break;
+    }
   
     default:
       return null;
@@ -327,9 +357,9 @@ function getPushUndoAction(
   return {
     type: 'PushUndo',
     undoredo: {
-      undoAction,
-      redoAction,
-      text,
+      undoAction: undoAction!,
+      redoAction: redoAction!,
+      text: text!,
     }
   }  
 }
