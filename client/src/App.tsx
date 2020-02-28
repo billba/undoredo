@@ -70,7 +70,7 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
         return {
           ... state,
           a: action.a,
-      }
+        }
 
       case 'incA':
         return {
