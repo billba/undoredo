@@ -49,6 +49,17 @@ type ThingAction =
 | {
   type: 'resetStuff',
 }
+| {
+  type: 'combo',
+}
+| {
+  type: 'combo_undo'
+  a: number,
+}
+| {
+  type: 'combo_complete',
+  count: number,
+}
 
 const thing: Reducer<ThingStateAction, ThingAction> = (
   state = { a: 13, b: "hello" },
@@ -101,6 +112,12 @@ const thing: Reducer<ThingStateAction, ThingAction> = (
         return {
           ... state,
           stuff: undefined,
+        }
+
+      case 'combo_complete':
+        return {
+          ... state,
+          a: state.a * action.count,
         }
 
       default:
@@ -248,6 +265,26 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> 
       setTimeout(() => dispatch({ type: 'setStuff', stuff: `Stuff`, undo}), 1000);
       return next(action);
 
+    case 'combo':
+      client
+        .mutate({ mutation: INC_COUNT })
+        .then(result => dispatch({
+          type: 'combo_complete',
+          count: result.data.incCount.count,
+          undo
+        }));
+      return next(action);
+  
+    case 'combo_undo':
+      client
+        .mutate({ mutation: DEC_COUNT })
+        .then(result => dispatch({
+          type: 'setA',
+          a: action.a,
+          undo
+        }));
+      return next(action);
+
     case 'mutation':
       client
         .mutate(action.options)
@@ -316,6 +353,17 @@ function getPushUndoAction(
         stuff: state.thing.stuff!,
       }
       text = 'reset Stuff';
+      break;
+
+    case 'combo_complete':
+      undoAction = {
+        type: 'combo_undo',
+        a: state.thing.a,
+      }
+      redoAction = {
+        type: 'combo',
+      }
+      text = 'combo';
       break;
 
     case 'mutationStatus': {
@@ -602,6 +650,20 @@ function Undo() {
   </div>;
 }
 
+function Combo() {
+  const dispatch = useDispatch<Dispatch<AppAction>>();
+
+  const a = useSelector((state: AppState) => state.thing.a);
+  const { loading, error, data } = useQuery(COUNT);
+  const doCombo = useCallback(() => dispatch({ type: 'combo' }), []);
+
+  return <>
+    <div><button onClick={ doCombo }>Inc Count and Multiply Thing by Count</button></div>
+    <div>Thing.a is { a }</div>
+    <div>count is { loading ? "loading" : error ? "error" : data.getCount.count }</div>
+  </>
+}
+
 export const App = () => (
   <Provider store={ store}>
     <ApolloProvider client={client}>
@@ -612,6 +674,8 @@ export const App = () => (
         <h2>Redux</h2>
         <AllThing />
         <Async />
+        <h2>Combo</h2>
+        <Combo />
     </ApolloProvider>
   </Provider>
 );
