@@ -580,7 +580,6 @@ function ChangeThing() {
 }
 
 function ShowThingA() {
-  console.log("A");
   const { a } = useSelector((state: AppState) => ({ a: state.thing.a }), shallowEqual);
 
   return <div>
@@ -589,7 +588,6 @@ function ShowThingA() {
 }
 
 function ShowThingB() {
-  console.log("B");
   const { b } = useSelector((state: AppState) => ({ b: state.thing.b }), shallowEqual);
 
   return <div>
