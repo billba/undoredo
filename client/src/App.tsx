@@ -278,7 +278,7 @@ const asyncMiddleware: Middleware<{}, AppState, Dispatch<AppAction & UndoFlag>> 
     case 'combo_undo':
       client
         .mutate({ mutation: DEC_COUNT })
-        .then(result => dispatch({
+        .then(_ => dispatch({
           type: 'setA',
           a: action.a,
           undo
@@ -369,32 +369,33 @@ function getPushUndoAction(
     case 'mutationStatus': {
       const mutation = action.options.mutation;
 
-      const incAction: AppAction = {
-        type: 'mutation',
-        options: {
-          ... action.options,
-          mutation: INC_COUNT,
-        }
-      };
+      if (mutation === INC_COUNT || mutation === DEC_COUNT) {
+        const incAction: AppAction = {
+          type: 'mutation',
+          options: {
+            ... action.options,
+            mutation: INC_COUNT,
+          }
+        };
 
-      const decAction: AppAction = {
-        type: 'mutation',
-        options: {
-          ... action.options,
-          mutation: DEC_COUNT,
-        }
-      };
+        const decAction: AppAction = {
+          type: 'mutation',
+          options: {
+            ... action.options,
+            mutation: DEC_COUNT,
+          }
+        };
 
-      if (mutation === INC_COUNT) {
-        undoAction = decAction;
-        redoAction = incAction;
-        text = 'inc Count'
-      } else if (mutation === DEC_COUNT) {
-        undoAction = incAction;
-        redoAction = decAction;
-        text = 'dec Count'
+        if (mutation === INC_COUNT) {
+          undoAction = decAction;
+          redoAction = incAction;
+          text = 'inc Count'
+        } else if (mutation === DEC_COUNT) {
+          undoAction = incAction;
+          redoAction = decAction;
+          text = 'dec Count'
+        }
       }
-
       break;
     }
   
@@ -580,7 +581,7 @@ function ChangeThing() {
 }
 
 function ShowThingA() {
-  const { a } = useSelector((state: AppState) => ({ a: state.thing.a }), shallowEqual);
+  const a = useSelector((state: AppState) => state.thing.a);
 
   return <div>
     Thing.a is { a }
@@ -610,7 +611,7 @@ function AllThing() {
 }
 
 function Async() {
-  const { stuff } = useSelector((state: AppState) => ({ stuff: state.thing.stuff }), shallowEqual);
+  const stuff = useSelector((state: AppState) => state.thing.stuff);
   const dispatch = useDispatch<Dispatch<AppAction>>();
   const loadStuff = useCallback(() => dispatch({ type: 'loadStuff' }), []);
   const resetStuff = useCallback(() => dispatch({ type: 'resetStuff' }), []);
