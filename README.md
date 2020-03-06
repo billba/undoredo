@@ -14,7 +14,7 @@ yarn watch
 ### run server
 ```
 cd server
-yarn started
+yarn start
 ```
 
 ### build & run client
